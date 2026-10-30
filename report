@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""Run from the project folder:  python report list   (or: python -m sql_report_kit list)"""
+import sys
+
+from sql_report_kit.cli import main
+
+sys.exit(main())
