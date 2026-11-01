@@ -1,1 +1,2 @@
+-r requirements-backends.txt
 pytest==9.2.0
