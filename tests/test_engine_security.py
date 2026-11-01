@@ -10,6 +10,7 @@ from sql_report_kit.backends import connect, parse_target
 from sql_report_kit.cli import main
 from sql_report_kit.errors import DatabaseError
 from sql_report_kit.queries import parse_query
+from tests.conftest import ROOT
 from tests.test_security import PAYLOADS
 
 COUNT_SQL = "SELECT (SELECT COUNT(*) FROM customers), (SELECT COUNT(*) FROM orders), (SELECT COUNT(*) FROM products), (SELECT COUNT(*) FROM refunds)"
@@ -93,6 +94,38 @@ def test_the_session_reports_itself_read_only(engine_env):
             assert backend.select("SHOW transaction_read_only") == [("on",)]
         else:
             assert backend.select("SELECT @@session.tx_read_only") == [(1,)]
+
+
+def test_each_read_only_layer_is_really_there(engine_env):
+    """The layers are checked one by one, so removing any single one is noticed."""
+    with connect(engine_env.reader_url()) as backend:
+        if engine_env.engine == "postgres":
+            assert backend.conn.read_only is True                      # every transaction starts as BEGIN READ ONLY
+            assert backend.select("SHOW default_transaction_read_only") == [("on",)]    # and the session default is read-only
+        elif engine_env.engine == "mariadb":
+            assert backend.dialect.begin_read_only_sql == "START TRANSACTION READ ONLY"
+            assert backend.select("SELECT @@session.tx_read_only") == [(1,)]
+        else:
+            assert backend.select("PRAGMA query_only") == [(1,)]
+            backend.conn.execute("PRAGMA query_only = OFF")           # the second layer: the file itself is opened mode=ro
+            with pytest.raises(Exception, match="(?i)readonly"):
+                backend.conn.execute("DELETE FROM refunds")
+
+
+def test_no_transaction_is_left_open_after_a_report(engine_env):
+    query = parse_query(ROOT / "queries" / "monthly_revenue.sql")
+    with connect(engine_env.reader_url()) as backend:
+        backend.run(query, {"from_date": "1900-01-01", "to_date": "2999-12-31"})
+        if engine_env.engine == "postgres":
+            from psycopg.pq import TransactionStatus
+
+            assert backend.conn.info.transaction_status == TransactionStatus.IDLE
+        elif engine_env.engine == "mariadb":
+            with backend.conn.cursor() as cur:
+                cur.execute("SELECT @@in_transaction")
+                assert cur.fetchone() == (0,)
+        else:
+            assert not backend.conn.in_transaction
 
 
 def test_a_report_cannot_switch_the_session_back_to_read_write(engine_env, tmp_path):

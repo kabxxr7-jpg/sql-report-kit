@@ -1,4 +1,5 @@
-"""PostgreSQL through psycopg 3. The session is read-only (a startup option plus BEGIN READ ONLY on every transaction)."""
+"""PostgreSQL through psycopg 3. Read-only twice over: the session default is read-only, and every transaction
+starts as BEGIN READ ONLY."""
 
 from __future__ import annotations
 
@@ -51,8 +52,6 @@ class PostgresBackend(Backend):
         }
         if target.option("sslmode"):
             kwargs["sslmode"] = target.option("sslmode")
-        if read_only:
-            kwargs["options"] = "-c default_transaction_read_only=on"
         try:
             conn = psycopg.connect(**{k: v for k, v in kwargs.items() if v is not None})
             conn.read_only = read_only          # every transaction starts as BEGIN READ ONLY

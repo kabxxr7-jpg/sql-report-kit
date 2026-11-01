@@ -58,7 +58,7 @@ def test_init_db_refuses_to_overwrite_then_force_rebuilds(engine_env, capsys):
     url = engine_env.db("tiny", fresh=True)
     password = parse_target(url).password
     code, out, err = cli(capsys, "init-db", "--db", url)
-    assert code == 1 and "already exist" in err or "already exists" in err
+    assert code == 1 and "already exist" in err and "--force" in err
     code, out, err = cli(capsys, "init-db", "--db", url, "--force")
     assert code == 0 and "customers 512, products 30, orders 1086, order_items 2051, refunds 53" in out
     assert not password or (password not in out and password not in err)

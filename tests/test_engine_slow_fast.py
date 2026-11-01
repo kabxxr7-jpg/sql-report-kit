@@ -66,6 +66,7 @@ def test_fast_version_searches_the_index_by_range_and_slow_reads_every_order(eng
         # an index scan or a bitmap index scan, depending on the planner's statistics; either way on this index, by range
         assert re.search(r"Index Scan (using idx_orders_created_at on orders|on idx_orders_created_at)", text_fast), text_fast
         assert "Index Cond: ((created_at >=" in text_fast
+        assert "cost=" not in text_fast                  # EXPLAIN (COSTS OFF): the plan text is stable and readable
         assert "Seq Scan on orders o" in text_slow and "idx_orders_created_at" not in text_slow
         assert "to_char(created_at, 'YYYY-MM'::text)" in text_slow
     else:

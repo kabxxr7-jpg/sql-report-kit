@@ -111,6 +111,23 @@ def test_row_counts_match_the_documented_sample(all_envs):
         assert counts == {"customers": 512, "products": 30, "orders": 1086, "order_items": 2051, "refunds": 53}, engine
 
 
+def test_amounts_beyond_32_bits_are_identical_on_all_engines(all_envs):
+    """A line of 3 x $40 million is 12 billion cents. Money columns are BIGINT on the servers, so sums, running totals
+    and the rounded 3-month average all agree with SQLite's 64-bit integers."""
+    results = {}
+    for engine, env in all_envs.items():
+        with env.scratch("tiny"):
+            env.execute(
+                "INSERT INTO orders (id, customer_id, status, created_at) VALUES (60, 1, 'completed', '2024-06-10 10:00:00')",
+                "INSERT INTO order_items (id, order_id, product_id, quantity, unit_price_cents) VALUES (60, 60, 1, 3, 4000000000)",
+            )
+            results[engine] = {n: strict(run_report(env, n, "tiny")) for n in ("monthly_revenue", "running_totals", "top_customers")}
+    assert results["postgres"] == results["sqlite"] and results["mariadb"] == results["sqlite"]
+    revenue = results["sqlite"]["monthly_revenue"][1]
+    assert revenue[-1] == ("2024-06", 1, 12_000_000_000, 0, 12_000_000_000)
+    assert results["sqlite"]["running_totals"][1][-1] == ("2024-06", 12_000_000_000, 12_000_000_000 + 12000, 4_000_000_500)
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Where the engines intentionally differ. Each of these is a fact about the engine, pinned so a change is noticed.
 # ---------------------------------------------------------------------------------------------------------------
