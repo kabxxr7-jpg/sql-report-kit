@@ -1,4 +1,4 @@
-"""Command line: report list | show | run | explain | init-db."""
+"""Command line: report list | show | run | explain | init-db | info."""
 
 from __future__ import annotations
 
@@ -6,18 +6,25 @@ import argparse
 import sys
 from pathlib import Path
 
-from .db import DatabaseError, connect_readonly, explain_query, run_query
+from .backends import connect, parse_target
+from .dialect import MacroError
+from .errors import DatabaseError, TargetError
 from .generate import build_sample_db
+from .load import load_sample
 from .params import ParamError, parse_param_args, resolve_params
 from .queries import Query, QueryFileError, load_queries
 from .render import render
 
 EXIT_OK, EXIT_RUNTIME, EXIT_USAGE = 0, 1, 2
 DEFAULT_DB = "sample.db"
+DB_HELP = (
+    f"SQLite file (default {DEFAULT_DB}) or a postgresql://user@host/dbname or mariadb://user@host/dbname URL "
+    "(password in the URL or in SQLREPORT_DB_PASSWORD)"
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="report", description="Run parameterized SQL reports on a SQLite database.")
+    parser = argparse.ArgumentParser(prog="report", description="Run parameterized SQL reports on SQLite, PostgreSQL or MariaDB.")
     parser.add_argument("--queries-dir", type=Path, default=None, help="folder of .sql report files (default: ./queries)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -30,18 +37,21 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("name")
     run.add_argument("--param", "-p", action="append", default=[], metavar="KEY=VALUE", help="a report parameter (repeatable)")
     run.add_argument("--format", "-f", choices=["csv", "markdown", "html"], default="csv")
-    run.add_argument("--db", default=DEFAULT_DB, help=f"SQLite file (default {DEFAULT_DB})")
+    run.add_argument("--db", default=DEFAULT_DB, help=DB_HELP)
     run.add_argument("--out", "-o", type=Path, default=None, help="write to this file instead of stdout")
 
-    explain = sub.add_parser("explain", help="print SQLite's EXPLAIN QUERY PLAN for a report")
+    explain = sub.add_parser("explain", help="print the database's query plan for a report")
     explain.add_argument("name")
     explain.add_argument("--param", "-p", action="append", default=[], metavar="KEY=VALUE")
-    explain.add_argument("--db", default=DEFAULT_DB)
+    explain.add_argument("--db", default=DEFAULT_DB, help=DB_HELP)
 
     init = sub.add_parser("init-db", help="create the fictional sample database")
-    init.add_argument("--db", default=DEFAULT_DB)
+    init.add_argument("--db", default=DEFAULT_DB, help=DB_HELP + ". For PostgreSQL and MariaDB the database must already exist")
     init.add_argument("--seed", type=int, default=42)
-    init.add_argument("--force", action="store_true", help="replace an existing file")
+    init.add_argument("--force", action="store_true", help="replace an existing file (server databases: drop and recreate the five sample tables)")
+
+    info = sub.add_parser("info", help="show which engine and version --db points at")
+    info.add_argument("--db", default=DEFAULT_DB, help=DB_HELP)
     return parser
 
 
@@ -72,8 +82,18 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "init-db":
-            counts = build_sample_db(args.db, seed=args.seed, force=args.force)
-            print(f"created {args.db} (seed {args.seed}): " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+            target = parse_target(args.db)
+            if target.engine == "sqlite":
+                counts = build_sample_db(args.db, seed=args.seed, force=args.force)
+            else:
+                with connect(args.db, read_only=False) as writer:
+                    counts = load_sample(writer, seed=args.seed, replace=args.force)
+            print(f"created {target.describe()} (seed {args.seed}): " + ", ".join(f"{k} {v}" for k, v in counts.items()))
+            return EXIT_OK
+
+        if args.command == "info":
+            with connect(args.db) as backend:
+                print(f"{parse_target(args.db).describe()}: {backend.version()}")
             return EXIT_OK
 
         queries = load_queries(args.queries_dir)
@@ -89,14 +109,11 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK
 
         values = resolve_params(query, parse_param_args(args.param))
-        conn = connect_readonly(args.db)
-        try:
+        with connect(args.db) as backend:
             if args.command == "explain":
-                print("\n".join(explain_query(conn, query, values)))
+                print("\n".join(backend.explain(query, values)))
                 return EXIT_OK
-            columns, rows = run_query(conn, query, values)
-        finally:
-            conn.close()
+            columns, rows = backend.run(query, values)
 
         text = render(args.format, query, columns, rows, values)
         if args.out:
@@ -106,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(text)
             print(f"{query.name}: {len(rows)} rows", file=sys.stderr)
         return EXIT_OK
-    except (ParamError, QueryFileError) as exc:
+    except (ParamError, QueryFileError, TargetError, MacroError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
     except (DatabaseError, FileExistsError) as exc:

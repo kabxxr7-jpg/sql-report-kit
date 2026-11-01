@@ -56,14 +56,14 @@ def _random_time(rng: random.Random) -> str:
     return f"{rng.randrange(8, 22):02d}:{rng.randrange(60):02d}:{rng.randrange(60):02d}"
 
 
-def build_sample_db(path: str | Path, seed: int = 42, force: bool = False) -> dict[str, int]:
-    """Create the database at `path` and return the row count of each table."""
-    db_path = Path(path)
-    if db_path.exists():
-        if not force:
-            raise FileExistsError(f"{db_path} already exists (use --force to replace it)")
-        db_path.unlink()
+TABLES = ("customers", "products", "orders", "order_items", "refunds")
 
+
+def generate_dataset(seed: int = 42) -> dict[str, list[tuple]]:
+    """The whole fictional shop as {table: rows}, in schema column order. Pure Python, no database involved.
+
+    Dates and timestamps are ISO text ('2024-01-31', '2024-01-31 10:15:00'); the loader for each engine
+    converts them to that engine's native types."""
     rng = random.Random(seed)
     span_days = (DATA_END - DATA_START).days
 
@@ -120,23 +120,29 @@ def build_sample_db(path: str | Path, seed: int = 42, force: bool = False) -> di
                 refunded_at = min(sold_at + timedelta(days=rng.randrange(1, 31)), datetime(2025, 6, 30, 23, 59, 59))
                 refunds.append((refund_id, item_id, amount, refunded_at.strftime("%Y-%m-%d %H:%M:%S"), rng.choice(REFUND_REASONS)))
 
+    return {"customers": customers, "products": products, "orders": orders, "order_items": items, "refunds": refunds}
+
+
+def build_sample_db(path: str | Path, seed: int = 42, force: bool = False) -> dict[str, int]:
+    """Create the SQLite database at `path` and return the row count of each table."""
+    db_path = Path(path)
+    if db_path.exists():
+        if not force:
+            raise FileExistsError(f"{db_path} already exists (use --force to replace it)")
+        db_path.unlink()
+
+    dataset = generate_dataset(seed)
     conn = sqlite3.connect(db_path)
     try:
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         conn.execute("PRAGMA foreign_keys = ON")
         with conn:
-            conn.executemany("INSERT INTO customers VALUES (?,?,?,?,?)", customers)
-            conn.executemany("INSERT INTO products VALUES (?,?,?,?,?)", products)
-            conn.executemany("INSERT INTO orders VALUES (?,?,?,?)", orders)
-            conn.executemany("INSERT INTO order_items VALUES (?,?,?,?,?)", items)
-            conn.executemany("INSERT INTO refunds VALUES (?,?,?,?,?)", refunds)
-        return {
-            "customers": len(customers),
-            "products": len(products),
-            "orders": len(orders),
-            "order_items": len(items),
-            "refunds": len(refunds),
-        }
+            conn.executemany("INSERT INTO customers VALUES (?,?,?,?,?)", dataset["customers"])
+            conn.executemany("INSERT INTO products VALUES (?,?,?,?,?)", dataset["products"])
+            conn.executemany("INSERT INTO orders VALUES (?,?,?,?)", dataset["orders"])
+            conn.executemany("INSERT INTO order_items VALUES (?,?,?,?,?)", dataset["order_items"])
+            conn.executemany("INSERT INTO refunds VALUES (?,?,?,?,?)", dataset["refunds"])
+        return {table: len(dataset[table]) for table in TABLES}
     finally:
         conn.close()
 
