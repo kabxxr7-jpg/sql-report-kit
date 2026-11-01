@@ -1,47 +1,38 @@
-"""Run reports against a SQLite file, read-only, with bound parameters only."""
+"""Run reports against SQLite, PostgreSQL or MariaDB, read-only, with bound parameters only.
+
+The SQLite functions keep their original shape (connect_readonly returns a sqlite3 connection); the engine
+differences live in dialect.py and the per-engine connection code in backends/.
+"""
 
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
+from .backends import Backend, SQLiteBackend, connect, parse_target
+from .backends.sqlite import open_readonly
+from .errors import DatabaseError
 from .queries import Query
 
-
-class DatabaseError(Exception):
-    """The database file is missing or the query could not run."""
+__all__ = ["DatabaseError", "connect", "connect_readonly", "explain_query", "run_query"]
 
 
-def connect_readonly(path: str | Path) -> sqlite3.Connection:
-    db_path = Path(path)
-    if not db_path.is_file():
-        raise DatabaseError(f"database not found: {db_path} (create the sample one with: report init-db)")
-    uri = db_path.resolve().as_uri() + "?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.execute("PRAGMA query_only = ON")
-    return conn
+def connect_readonly(target: str | Path) -> sqlite3.Connection | Backend:
+    """A SQLite file gives a read-only sqlite3 connection; a postgresql:// or mariadb:// URL gives a Backend."""
+    text = str(target)
+    if parse_target(text).engine == "sqlite":
+        return open_readonly(text)
+    return connect(text)
 
 
-def run_query(conn: sqlite3.Connection, query: Query, values: dict[str, object]) -> tuple[list[str], list[tuple]]:
-    try:
-        cursor = conn.execute(query.sql, values)
-        rows = cursor.fetchall()
-        columns = [d[0] for d in cursor.description or []]
-    except sqlite3.Error as exc:
-        raise DatabaseError(f"{query.name}: {exc}") from exc
-    return columns, rows
+def _backend(conn: sqlite3.Connection | Backend) -> Backend:
+    return conn if isinstance(conn, Backend) else SQLiteBackend(conn)
 
 
-def explain_query(conn: sqlite3.Connection, query: Query, values: dict[str, object]) -> list[str]:
-    """Return the EXPLAIN QUERY PLAN detail lines, indented by nesting depth."""
-    try:
-        plan = conn.execute("EXPLAIN QUERY PLAN " + query.sql, values).fetchall()
-    except sqlite3.Error as exc:
-        raise DatabaseError(f"{query.name}: {exc}") from exc
-    depth: dict[int, int] = {0: -1}
-    lines: list[str] = []
-    for node_id, parent, _unused, detail in plan:
-        level = depth.get(parent, -1) + 1
-        depth[node_id] = level
-        lines.append("  " * level + detail)
-    return lines
+def run_query(conn: sqlite3.Connection | Backend, query: Query, values: dict[str, object]) -> tuple[list[str], list[tuple]]:
+    return _backend(conn).run(query, values)
+
+
+def explain_query(conn: sqlite3.Connection | Backend, query: Query, values: dict[str, object]) -> list[str]:
+    """Return the engine's query plan, one line per plan node (SQLite lines are indented by nesting depth)."""
+    return _backend(conn).explain(query, values)

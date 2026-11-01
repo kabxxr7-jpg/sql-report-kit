@@ -5,7 +5,7 @@
 -- chart: signup_month, repeat_rate_pct
 WITH counts AS (
     SELECT c.id,
-           strftime('%Y-%m', c.created_at) AS signup_month,
+           {{month_key(c.created_at)}} AS signup_month,
            (SELECT COUNT(*)
               FROM orders o
              WHERE o.customer_id = c.id

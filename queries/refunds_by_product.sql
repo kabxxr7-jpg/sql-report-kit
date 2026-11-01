@@ -11,8 +11,8 @@ WITH sold AS (
     FROM order_items oi
     JOIN orders o ON o.id = oi.order_id
     WHERE o.status = 'completed'
-      AND o.created_at >= :from_date
-      AND o.created_at <  date(:to_date, '+1 day')
+      AND o.created_at >= {{day_start(:from_date)}}
+      AND o.created_at < {{day_after(:to_date)}}
     GROUP BY oi.product_id
 ),
 refunded AS (
@@ -21,8 +21,8 @@ refunded AS (
            SUM(r.amount_cents) AS refunded_cents
     FROM refunds r
     JOIN order_items oi ON oi.id = r.order_item_id
-    WHERE r.refunded_at >= :from_date
-      AND r.refunded_at <  date(:to_date, '+1 day')
+    WHERE r.refunded_at >= {{day_start(:from_date)}}
+      AND r.refunded_at < {{day_after(:to_date)}}
     GROUP BY oi.product_id
 )
 SELECT p.sku,

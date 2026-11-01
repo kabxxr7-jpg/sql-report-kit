@@ -4,27 +4,27 @@
 -- chart: cohort_month, m1_pct
 WITH cust AS (
     SELECT c.id,
-           strftime('%Y-%m', c.created_at) AS cohort_month,
-           CAST(strftime('%Y', c.created_at) AS INTEGER) * 12 + CAST(strftime('%m', c.created_at) AS INTEGER) AS cohort_idx
+           {{month_key(c.created_at)}} AS cohort_month,
+           {{month_index(c.created_at)}} AS cohort_idx
     FROM customers c
 ),
 active AS (
     SELECT DISTINCT o.customer_id,
-           CAST(strftime('%Y', o.created_at) AS INTEGER) * 12 + CAST(strftime('%m', o.created_at) AS INTEGER) AS active_idx
+           {{month_index(o.created_at)}} AS active_idx
     FROM orders o
     WHERE o.status = 'completed'
 ),
 joined AS (
-    SELECT c.cohort_month, c.id, a.active_idx - c.cohort_idx AS offset
+    SELECT c.cohort_month, c.id, a.active_idx - c.cohort_idx AS month_offset
     FROM cust c
     LEFT JOIN active a ON a.customer_id = c.id
 )
 SELECT cohort_month,
        COUNT(DISTINCT id) AS customers,
-       ROUND(100.0 * COUNT(DISTINCT CASE WHEN offset = 0 THEN id END) / COUNT(DISTINCT id), 1) AS m0_pct,
-       ROUND(100.0 * COUNT(DISTINCT CASE WHEN offset = 1 THEN id END) / COUNT(DISTINCT id), 1) AS m1_pct,
-       ROUND(100.0 * COUNT(DISTINCT CASE WHEN offset = 2 THEN id END) / COUNT(DISTINCT id), 1) AS m2_pct,
-       ROUND(100.0 * COUNT(DISTINCT CASE WHEN offset = 3 THEN id END) / COUNT(DISTINCT id), 1) AS m3_pct
+       ROUND(100.0 * COUNT(DISTINCT CASE WHEN month_offset = 0 THEN id END) / COUNT(DISTINCT id), 1) AS m0_pct,
+       ROUND(100.0 * COUNT(DISTINCT CASE WHEN month_offset = 1 THEN id END) / COUNT(DISTINCT id), 1) AS m1_pct,
+       ROUND(100.0 * COUNT(DISTINCT CASE WHEN month_offset = 2 THEN id END) / COUNT(DISTINCT id), 1) AS m2_pct,
+       ROUND(100.0 * COUNT(DISTINCT CASE WHEN month_offset = 3 THEN id END) / COUNT(DISTINCT id), 1) AS m3_pct
 FROM joined
 GROUP BY cohort_month
 ORDER BY cohort_month;

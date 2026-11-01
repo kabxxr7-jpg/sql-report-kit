@@ -5,21 +5,21 @@
 -- param: to_date | date | 2999-12-31 | Last day to include (YYYY-MM-DD)
 -- chart: month, cumulative_net_cents
 WITH gross AS (
-    SELECT strftime('%Y-%m', o.created_at)        AS month,
+    SELECT {{month_key(o.created_at)}}        AS month,
            SUM(oi.quantity * oi.unit_price_cents) AS gross_cents
     FROM orders o
     JOIN order_items oi ON oi.order_id = o.id
     WHERE o.status = 'completed'
-      AND o.created_at >= :from_date
-      AND o.created_at <  date(:to_date, '+1 day')
+      AND o.created_at >= {{day_start(:from_date)}}
+      AND o.created_at < {{day_after(:to_date)}}
     GROUP BY month
 ),
 refunded AS (
-    SELECT strftime('%Y-%m', r.refunded_at) AS month,
+    SELECT {{month_key(r.refunded_at)}} AS month,
            SUM(r.amount_cents)              AS refunds_cents
     FROM refunds r
-    WHERE r.refunded_at >= :from_date
-      AND r.refunded_at <  date(:to_date, '+1 day')
+    WHERE r.refunded_at >= {{day_start(:from_date)}}
+      AND r.refunded_at < {{day_after(:to_date)}}
     GROUP BY month
 ),
 months AS (
@@ -37,6 +37,6 @@ monthly AS (
 SELECT month,
        net_cents,
        SUM(net_cents) OVER (ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_net_cents,
-       CAST(ROUND(AVG(net_cents) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 0) AS INTEGER) AS avg3_net_cents
+       {{cast_int(ROUND(AVG(net_cents) OVER (ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW), 0))}} AS avg3_net_cents
 FROM monthly
 ORDER BY month;

@@ -9,6 +9,9 @@ A report file is ONE SQL statement with a documented header made of comment line
 
 Parameters are referenced in the SQL as :name and are always passed as bound values.
 Types: text, int (optionally int:MIN..MAX), date (YYYY-MM-DD), month (YYYY-MM).
+
+Where SQLite, PostgreSQL and MariaDB disagree, a file uses a {{macro(...)}} that sql_report_kit/dialect.py
+turns into the right SQL for the engine in use. Everything else is plain SQL that all three accept.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .dialect import DIALECTS, MACRO_NAMES, MacroError, used_macros
 
 REQUIRED = "REQUIRED"
 PLACEHOLDER = re.compile(r"(?<![:\w]):([A-Za-z_]\w*)")
@@ -107,6 +112,16 @@ def parse_query(path: Path) -> Query:
         raise QueryFileError(
             f"{path.name}: placeholders {sorted(used)} do not match declared params {sorted(declared)}"
         )
+
+    unknown_macros = used_macros(text) - MACRO_NAMES
+    if unknown_macros:
+        raise QueryFileError(f"{path.name}: unknown macro(s) {sorted(unknown_macros)} (known: {sorted(MACRO_NAMES)})")
+
+    for dialect in DIALECTS.values():       # a bad macro (wrong argument count, unclosed bracket) is caught here, for every engine
+        try:
+            dialect.compile(text, {p.name: None for p in params})
+        except MacroError as exc:
+            raise QueryFileError(f"{path.name}: {exc}") from None
 
     return Query(name, title, " ".join(description), tuple(params), chart, text, path)
 

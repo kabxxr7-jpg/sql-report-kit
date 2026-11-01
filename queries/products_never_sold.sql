@@ -13,7 +13,7 @@ WHERE NOT EXISTS (
     JOIN orders o ON o.id = oi.order_id
     WHERE oi.product_id = p.id
       AND o.status = 'completed'
-      AND o.created_at >= :from_date
-      AND o.created_at <  date(:to_date, '+1 day')
+      AND o.created_at >= {{day_start(:from_date)}}
+      AND o.created_at < {{day_after(:to_date)}}
 )
 ORDER BY p.sku;

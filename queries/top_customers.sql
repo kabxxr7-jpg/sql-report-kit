@@ -13,8 +13,8 @@ WITH spend AS (
     FROM orders o
     JOIN order_items oi ON oi.order_id = o.id
     WHERE o.status = 'completed'
-      AND o.created_at >= :from_date
-      AND o.created_at <  date(:to_date, '+1 day')
+      AND o.created_at >= {{day_start(:from_date)}}
+      AND o.created_at < {{day_after(:to_date)}}
     GROUP BY o.customer_id
 ),
 refunded AS (
@@ -23,8 +23,8 @@ refunded AS (
     FROM refunds r
     JOIN order_items oi ON oi.id = r.order_item_id
     JOIN orders o       ON o.id  = oi.order_id
-    WHERE r.refunded_at >= :from_date
-      AND r.refunded_at <  date(:to_date, '+1 day')
+    WHERE r.refunded_at >= {{day_start(:from_date)}}
+      AND r.refunded_at < {{day_after(:to_date)}}
     GROUP BY o.customer_id
 )
 SELECT c.id    AS customer_id,
@@ -39,4 +39,4 @@ JOIN customers c ON c.id = s.customer_id
 LEFT JOIN refunded f ON f.customer_id = s.customer_id
 WHERE (:city = '' OR c.city = :city)
 ORDER BY net_cents DESC, c.name ASC, c.id ASC
-LIMIT :limit;
+{{limit(:limit)}};
