@@ -61,3 +61,88 @@ def table_counts(db) -> dict[str, int]:
         }
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Multi-engine fixtures: the same tests run on SQLite, PostgreSQL and MariaDB. The two servers are started lazily
+# (one throwaway database each, dropped at the end of the session; see tests/engines.py). A server that is not
+# reachable skips its tests, unless SQLREPORT_REQUIRE_BACKENDS names it, in which case the run fails.
+# ---------------------------------------------------------------------------------------------------------------
+
+from tests.engines import (  # noqa: E402
+    ENGINES, EngineEnv, MariaDBServer, PostgresServer, ServerUnavailable, SQLiteServer, required_engines,
+)
+
+
+def pytest_report_header(config):
+    lines = []
+    for server in (PostgresServer(), MariaDBServer()):
+        try:
+            from sql_report_kit.backends import connect
+
+            with connect(server.admin_url, read_only=False) as admin:
+                version = admin.version()
+            lines.append(f"{server.engine}: {version}")
+        except Exception as exc:  # reachability probe only
+            lines.append(f"{server.engine}: not reachable ({type(exc).__name__})")
+    lines.append(f"sqlite: {sqlite3.sqlite_version}")
+    return lines
+
+
+@pytest.fixture(scope="session")
+def _envs(tmp_path_factory):
+    envs: dict[str, EngineEnv | ServerUnavailable] = {}
+    folder = tmp_path_factory.mktemp("engines")
+    yield envs, folder
+    for env in envs.values():
+        if isinstance(env, EngineEnv):
+            env.server.stop()
+
+
+def _get_env(engine, store):
+    envs, folder = store
+    if engine not in envs:
+        server = {"sqlite": lambda: SQLiteServer(folder), "postgres": PostgresServer, "mariadb": MariaDBServer}[engine]()
+        try:
+            server.start()
+            envs[engine] = EngineEnv(server)
+        except ServerUnavailable as exc:
+            envs[engine] = exc
+    env = envs[engine]
+    if isinstance(env, ServerUnavailable):
+        if engine in required_engines():
+            pytest.fail(f"{engine} is required (SQLREPORT_REQUIRE_BACKENDS) but unavailable: {env}")
+        pytest.skip(f"{engine} not available: {env}")
+    return env
+
+
+@pytest.fixture(params=ENGINES)
+def engine_env(request, _envs):
+    """The EngineEnv for each engine in turn: tests using it run once on SQLite, PostgreSQL and MariaDB."""
+    return _get_env(request.param, _envs)
+
+
+@pytest.fixture
+def all_envs(_envs):
+    """All three EngineEnvs together, for tests that compare engines with each other."""
+    return {engine: _get_env(engine, _envs) for engine in ENGINES}
+
+
+def run_report(env, name, dataset="tiny", fresh=False, **raw):
+    """Run a report on one engine through the same validation and read-only path the CLI uses."""
+    from sql_report_kit.backends import connect
+
+    query = load_queries()[name]
+    values = resolve_params(query, {k: str(v) for k, v in raw.items()})
+    with connect(env.db(dataset, fresh=fresh)) as backend:
+        return backend.run(query, values)
+
+
+@pytest.fixture
+def er(engine_env):
+    """er("monthly_revenue", "tiny", from_date="2024-02-01") -> (columns, rows) on the current engine."""
+
+    def _er(name, dataset="tiny", fresh=False, **raw):
+        return run_report(engine_env, name, dataset, fresh, **raw)
+
+    return _er
