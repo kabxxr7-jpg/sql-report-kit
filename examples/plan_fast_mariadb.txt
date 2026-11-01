@@ -1,0 +1,3 @@
+o: type=range key=idx_orders_created_at rows=99 (Using index condition)
+c: type=eq_ref key=PRIMARY rows=1
+oi: type=ref key=idx_order_items_order_id rows=1

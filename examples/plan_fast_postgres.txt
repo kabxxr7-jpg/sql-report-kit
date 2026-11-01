@@ -1,0 +1,12 @@
+Sort
+  Sort Key: o.created_at, o.id
+  ->  Hash Join
+        Hash Cond: (o.customer_id = c.id)
+        ->  Index Scan using idx_orders_created_at on orders o
+              Index Cond: ((created_at >= ('2025-03-01'::cstring)::date) AND (created_at < (('2025-03-01'::cstring)::date + '1 mon'::interval)))
+        ->  Hash
+              ->  Seq Scan on customers c
+        SubPlan 1
+          ->  Aggregate
+                ->  Index Scan using idx_order_items_order_id on order_items oi
+                      Index Cond: (order_id = o.id)

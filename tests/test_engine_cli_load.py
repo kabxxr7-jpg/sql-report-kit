@@ -9,6 +9,7 @@ from sql_report_kit.backends import connect, parse_target
 from sql_report_kit.cli import main
 from sql_report_kit.generate import build_sample_db, content_digest
 from sql_report_kit.load import backend_digest, drop_sample_tables
+from tests.conftest import ROOT
 
 
 def cli(capsys, *args):
@@ -28,6 +29,12 @@ def test_run_csv_markdown_and_html_on_every_engine(engine_env, capsys, tmp_path)
     assert md.read_text().startswith("| month | orders | gross_usd")
     page = html.read_text()
     assert "<svg" in page and "Monthly revenue" in page and "to_date=2999-12-31" in page
+
+
+@pytest.mark.parametrize("fmt, filename", [("csv", "monthly_revenue.csv"), ("markdown", "monthly_revenue.md"), ("html", "monthly_revenue.html")])
+def test_the_shipped_example_files_are_exactly_what_every_engine_produces(engine_env, capsys, fmt, filename):
+    code, out, _ = cli(capsys, "run", "monthly_revenue", "--db", engine_env.db("sample"), "-f", fmt)
+    assert code == 0 and out == (ROOT / "examples" / filename).read_text(encoding="utf-8")
 
 
 def test_parameters_empty_results_and_usage_errors(engine_env, capsys):

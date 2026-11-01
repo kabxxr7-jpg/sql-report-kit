@@ -1,0 +1,50 @@
+# NOT YET RUN: this file has never been executed on GitHub Actions. It was written to match the local setup
+# (see the README, "What this does not prove"), but the service container versions below are not the versions
+# the suite was run against locally (PostgreSQL 16.15 and MariaDB 13.0.2), and the steps are unchecked.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: ci-only-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # The suite creates one throwaway database and its own users on each server, and drops them at the end.
+      SQLREPORT_PG_ADMIN_URL: postgresql://postgres:ci-only-password@127.0.0.1:5432/postgres
+      SQLREPORT_MARIADB_ADMIN_URL: mariadb://root:ci-only-password@127.0.0.1:3306/
+      SQLREPORT_MARIADB_HOST: 127.0.0.1
+      SQLREPORT_MARIADB_PORT: "3306"
+      # A server that cannot be reached fails the run instead of silently skipping its tests.
+      SQLREPORT_REQUIRE_BACKENDS: postgres,mariadb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -v

@@ -143,6 +143,15 @@ def test_a_value_that_looks_like_sql_stays_a_value():
         assert "DROP" not in compiled.sql
 
 
+def test_a_doubled_quote_inside_a_string_does_not_end_it():
+    sql = "SELECT 'it''s :not_a_param, 100%' AS a, :real AS b"
+    assert POSTGRES.compile(sql, {"real": 1}).sql == "SELECT 'it''s :not_a_param, 100%%' AS a, %(real)s AS b"
+    assert SQLITE.compile(sql, {"real": 1}).params == {"real": 1}
+    assert split_statements("SELECT 'a'';b'; SELECT 2") == ["SELECT 'a'';b'", "SELECT 2"]
+    assert used_macros("SELECT 'x''{{m}}'") == set()
+    assert strip_comments_and_expand("SELECT 'it''s' -- c\n, {{true}}", MARIADB).split() == ["SELECT", "'it''s'", ",", "TRUE"]
+
+
 # --- quoting, booleans, statements -------------------------------------------------------------------------
 
 

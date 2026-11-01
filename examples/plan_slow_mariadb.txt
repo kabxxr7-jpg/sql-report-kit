@@ -1,0 +1,3 @@
+o: type=ALL key=None rows=1086 (Using where; Using filesort)
+c: type=eq_ref key=PRIMARY rows=1
+oi: type=ref key=idx_order_items_order_id rows=1

@@ -99,7 +99,7 @@ M = [
     ("maria-ignores-password", "sql_report_kit/backends/mariadb.py", """"password": target.password or None,""", """"password": None,""", "MariaDB connections never send the password"),
     ("sqlite-not-mode-ro", "sql_report_kit/backends/sqlite.py", """+ "?mode=ro\"""", """+ "?mode=rw\"""", "SQLite file is opened read-write"),
     # ---- target URLs -------------------------------------------------------------------------------------
-    ("target-no-mysql-scheme", "sql_report_kit/backends/target.py", """, "mysql": "mariadb\"""", """\"""", "mysql:// URLs are no longer accepted"),
+    ("target-no-mysql-scheme", "sql_report_kit/backends/target.py", """, "mysql": "mariadb\"""", "", "mysql:// URLs are no longer accepted"),
     ("target-env-password", "sql_report_kit/backends/target.py", """else os.environ.get("SQLREPORT_DB_PASSWORD", "")""", """else \"\"""", "SQLREPORT_DB_PASSWORD is ignored"),
     ("target-options-unchecked", "sql_report_kit/backends/target.py", """    if unknown:""", """    if False:""", "unknown URL options are accepted"),
     ("target-describe-leaks", "sql_report_kit/backends/target.py", """as {self.user or '(default user)'}\"""", """as {self.user or '(default user)'}:{self.password}\"""", "describe() prints the password"),
@@ -119,7 +119,7 @@ def run_pytest(directory: Path, paths: list[str], tag: str, timeout: int) -> tup
     env = dict(os.environ, SQLREPORT_RUN_TAG=tag, SQLREPORT_REQUIRE_BACKENDS="postgres,mariadb", PYTHONDONTWRITEBYTECODE="1")
     # the copy has no .local-db folder, so point it at the real server's socket
     env.setdefault("SQLREPORT_MARIADB_ADMIN_URL", f"mariadb://{getpass.getuser()}@/?unix_socket={quote(str(ROOT / '.local-db' / 'mariadb' / 'mariadb.sock'), safe='/')}")
-    cmd = [sys.executable, "-m", "pytest", "-x", "-p", "no:cacheprovider", "--tb=no", "-rf", *paths]
+    cmd = [sys.executable, "-m", "pytest", "-x", "-p", "no:cacheprovider", "--tb=no", "-rfE", *paths]
     started = time.time()
     proc = subprocess.Popen(cmd, cwd=directory, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     try:
@@ -135,8 +135,10 @@ def run_pytest(directory: Path, paths: list[str], tag: str, timeout: int) -> tup
     if proc.returncode == 0:
         return "passed", "", elapsed
     if proc.returncode == 1:
-        m = re.search(r"^FAILED (\S+)", out, re.M)
-        return "failed", m.group(1) if m else "(failure not parsed)", elapsed
+        m = re.search(r"^(FAILED|ERROR) (\S+)", out, re.M)
+        if m and m.group(1) == "ERROR":
+            return "failed", f"[error before the test body] {m.group(2)}", elapsed
+        return "failed", m.group(2) if m else "(failure not parsed)", elapsed
     return "error", f"pytest exit {proc.returncode}: " + " | ".join(out.strip().splitlines()[-3:]), elapsed
 
 

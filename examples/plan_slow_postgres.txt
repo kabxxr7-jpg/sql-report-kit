@@ -1,0 +1,12 @@
+Sort
+  Sort Key: o.created_at, o.id
+  ->  Hash Join
+        Hash Cond: (c.id = o.customer_id)
+        ->  Seq Scan on customers c
+        ->  Hash
+              ->  Seq Scan on orders o
+                    Filter: (to_char(created_at, 'YYYY-MM'::text) = '2025-03'::text)
+        SubPlan 1
+          ->  Aggregate
+                ->  Index Scan using idx_order_items_order_id on order_items oi
+                      Index Cond: (order_id = o.id)
