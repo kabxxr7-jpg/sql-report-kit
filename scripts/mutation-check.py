@@ -79,7 +79,7 @@ M = [
             return value""", "booleans stay True/False instead of 1/0"),
     ("normalize-bytes", "sql_report_kit/dialect.py", """return bytes(value).decode("utf-8", errors="replace")""", """return str(value)""", "bytes come back as b'...'"),
     ("split-args-nesting", "sql_report_kit/dialect.py", """if ch == "," and depth == 0:""", """if ch == ",":""", "macro arguments split inside parentheses"),
-    ("quote-escape-ignored", "sql_report_kit/dialect.py", """if j + 1 < len(text) and text[j + 1] == quote:""", """if False:""", "a doubled quote inside a string ends the string"),
+    ("quote-escape-ignored", "sql_report_kit/dialect.py", """if j + 1 < len(text) and text[j + 1] == quote:""", """if False:""", "EQUIVALENT mutant, expected to survive: a doubled quote is read as two adjacent strings, which gives the same result"),
     # ---- backends -----------------------------------------------------------------------------------------
     ("one-statement-check", "sql_report_kit/backends/base.py", """if len(split_statements(compiled.sql)) != 1:""", """if len(split_statements(compiled.sql)) < 1:""", "a second statement in a report is allowed"),
     ("rows-not-normalised", "sql_report_kit/backends/base.py", """return columns, [self.dialect.normalize_row(tuple(r)) for r in rows]""", """return columns, [tuple(r) for r in rows]""", "driver types leak into results"),
