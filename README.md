@@ -212,6 +212,10 @@ export SQLREPORT_REQUIRE_BACKENDS=postgres,mariadb
 
 PostgreSQL is expected at a unix socket in `/tmp` as your own role, which must be allowed to `CREATE ROLE` and `CREATE DATABASE`. Everything is configurable with `SQLREPORT_PG_ADMIN_URL`, `SQLREPORT_MARIADB_ADMIN_URL`, `SQLREPORT_MARIADB_HOST` and `SQLREPORT_MARIADB_PORT` (`tests/engines.py` documents them). Test databases and users are named `sqlreport_kit_test_*`, `sqlreport_kit_role_*`, `sqlreport_kit_rw_*` and `sqlreport_kit_ro_*`, and every `DROP` checks the name first. If a run is killed hard, `python -m tests.engines cleanup` drops what it left. `scripts/local-mariadb.py` never reads the system `my.cnf`, never installs anything and `destroy` deletes its data folder.
 
+### Continuous integration (not run)
+
+`.github/workflows/tests.yml` starts `postgres:16` and `mariadb:11.4` service containers on a GitHub Actions runner and runs the same suite with `SQLREPORT_REQUIRE_BACKENDS=postgres,mariadb`, so a missing server fails the job instead of skipping tests. **That file has never run.** Nothing was pushed, no GitHub repository was created, and the container versions are not the ones used locally (PostgreSQL 16.15, MariaDB 13.0.2). Treat it as an untested draft until it has a green run.
+
 ### Mutation check
 
 `scripts/mutation-check.py` breaks the code on purpose, one change at a time (59 changes, in the dialect, the three backends, the URL parser, the loader and the command line), and runs the suite against the real servers. Phase 1 runs only the engine tests; a mutant that survives is run against the whole suite. Each phase has a hard time limit; on timeout the whole process group is killed, and a timeout counts as not killed. Result of the last run: **57 of 59 killed, 2 survived, 0 timeouts, 0 errors.** 44 were killed by the engine tests on the real PostgreSQL and MariaDB servers (and SQLite); 13 were killed only by tests that need no database (macro text, `%` escaping, value normalising, URL parsing). One of the 57 (`split-args-nesting`) was killed by a start-up error (the reports could not be loaded) rather than by an assertion. The two survivors:
